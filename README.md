@@ -105,6 +105,4 @@ python3 exploit.py -u "admin" -p 'pfsense' --mode 'gif' -t http://10.101.1.1 -c 
 - Double-check the credentials being used for login.
 - Use the `-d` flag for more detailed logging if needed.
 
-### License
 
-This project is licensed under the MIT License.
